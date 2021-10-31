@@ -1,0 +1,31 @@
+---
+title: 'DATA 622: Homework #4'
+author: "Karim Hammoud and Michael Munguia"
+date: "11/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+set.seed(123)
+
+knitr::opts_chunk$set(
+  cache.extra = knitr::rand_seed, echo = TRUE, warning = FALSE, message = FALSE
+  )
+```
+
+# Section 1
+
+
+# Section 2
+
+
+# Section 3
+
+
+# Section 4
+
+
+# Section 5
+
+
+# Section 6
