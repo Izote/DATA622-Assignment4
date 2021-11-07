@@ -1,0 +1,205 @@
+---
+title: 'Homework #4'
+author: "Karim Hammoud and Michael Munguia"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+`For this assignment, we will be working with a very interesting mental health dataset from a real-life research project. All identifying information, of course, has been removed. The attached spreadsheet has the data (the tab name “Data”). The data dictionary is given in the second tab. You can get as creative as you want. The assignment is designed to really get you to think about how you could use different methods.`
+
+`Number Key to ADHD spreadsheet`
+C:  Sex:  Male-1, Female-2
+D: Race:  White-1, African American-2, Hispanic-3, Asian-4, Native American-5, Other or missing data -6
+E - W ADHD self-report scale: Never-0, rarely-1, sometimes-2, often-3, very often-4
+X – AM Mood disorder questions: No-0, yes-1; question 3: no problem-0, minor-1, moderate-2, serious-3
+AN – AS  Individual substances misuse:  no use-0, use-1, abuse-2, dependence-3
+AT Court Order:  No-0, Yes-1
+AU Education: 1-12 grade, 13+ college
+AV History of Violence: No-0, Yes-1
+AW Disorderly Conduct: No-0, Yes-1
+AX Suicide attempt: No-0, Yes-1
+AY Abuse Hx: No-0, Physical (P)-1, Sexual (S)-2, Emotional (E)-3, P&S-4, P&E-5, S&E-6, P&S&E-7
+AZ Non-substance-related Dx: 0 – none; 1 – one; 2 – More than one
+BA Substance-related Dx: 0 – none; 1 – one Substance-related; 2 – two; 3 – three or more
+BB Psychiatric Meds: 0 – none; 1 – one psychotropic med; 2 – more than one psychotropic med
+
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(readxl)
+library(corrplot)
+```
+
+
+**1. Conduct a thorough Exploratory Data Analysis (EDA) to understand the dataset.**
+
+```{r}
+adhd <- read_excel("ADHD_data.xlsx", sheet = "Data")
+adhd
+```
+```{r}
+summary(adhd)
+```
+We will check the distibution of the main factors
+```{r warning=FALSE}
+adhd %>%
+  gather(variable, value, Age, Sex, Race, Alcohol:"Psych meds.") %>%
+  ggplot(., aes(value)) + 
+  geom_density(fill = "#3A8B63", color="#3A8B63") + 
+  facet_wrap(~variable, scales ="free", ncol = 4) +
+  labs(x = element_blank(), y = element_blank())
+```
+
+
+Lets see the distribution of the ADHD data
+```{r warning=FALSE}
+adhd %>%
+  gather(variable, value, "ADHD Q1":"ADHD Total") %>%
+  ggplot(., aes(value)) + 
+  geom_density(fill = "#3A8B63", color="#3A8B63") + 
+  facet_wrap(~variable, scales ="free", ncol = 4) +
+  labs(x = element_blank(), y = element_blank())
+```
+
+Lets see the distribution of the MD data
+```{r warning=FALSE}
+adhd %>%
+  gather(variable, value, "MD Q1a":"MD TOTAL") %>%
+  ggplot(., aes(value)) + 
+  geom_density(fill = "#3A8B63", color="#3A8B63") + 
+  facet_wrap(~variable, scales ="free", ncol = 4) +
+  labs(x = element_blank(), y = element_blank())
+```
+
+**2. Use a clustering method to find clusters of patients here. Whether you choose to use k-means clustering or hierarchical clustering is up to you as long as you reason through your work. You are free to be creative in terms of which variables or some combination of those you want to use. Can you come up with creative names for the profiles you found?**
+
+`I will start on preforming the K-means clustering method`
+
+`Here we will focus on using the ADHD data`
+
+```{r}
+adhd_1 <- adhd[5:23]
+
+# checking the vairances for ADHD
+apply(adhd_1, 2, var)
+```
+
+`We now perform K-means clustering with K = 2.`
+
+```{r}
+set.seed(2)
+
+km_out <- kmeans(adhd_1,2,nstart=20)
+
+print(summary(km_out))
+```
+
+`The K-means clustering perfectly separated the observations into two clusters even though we did not supply any group information to kmeans(). We can plot the data, with each observation colored according to its cluster assignment.`
+
+```{r}
+plot(adhd_1, col=(km_out$cluster+1), main="K-Means Clustering Results with K=2", pch=20, cex=2)
+```
+
+
+`We now perform K-means clustering with K = 2.`
+
+```{r}
+set.seed(2)
+
+km_out2 <- kmeans(adhd_1,3,nstart=20)
+
+print(summary(km_out2))
+```
+
+`The K-means clustering perfectly separated the observations into two clusters even though we did not supply any group information to kmeans(). We can plot the data, with each observation colored according to its cluster assignment.`
+
+```{r}
+plot(adhd_1, col=(km_out2$cluster+1), main="K-Means Clustering Results with K=3", pch=20, cex=2)
+```
+
+`When K = 3, K-means clustering splits up the two clusters`
+```{r}
+set.seed(3)
+km_out3=kmeans(adhd_1,3,nstart=1)
+km_out3$tot.withinss
+
+km_out4=kmeans(adhd_1,3,nstart=20)
+km_out4$tot.withinss
+```
+
+
+
+**3. Let’s explore using Principal Component Analysis on this dataset. You will note that there are different types of questions in the dataset: column: E-W: ADHD self-report; column X – AM: mood disorders questionnaire, column AN-AS: Individual Substance Misuse; etc. You could just use ONE of the sets of questionnaire, for example, you can conduct PCA on the ADHD score, or mood disorder score, etc. Please reason through your work as you decide on which sets of variables you want to use to conduct Principal Component Analysis. What did you learn from the PCA? Can you comment on which question may have a heavy bearing on the score?**
+
+
+`Lets perform principal components analysis on the ADHD data`
+
+```{r}
+pr_out = prcomp(adhd_1, scale=TRUE)
+pr_out
+```
+
+`The center and scale components correspond to the means and standard deviations of the variables that were used for scaling prior to implementing PCA.`
+
+```{r}
+names(pr_out)
+
+pr_out$center
+```
+
+`The rotation matrix provides the principal component loadings; each column of pr_out$rotation contains the corresponding principal component loading vector ^2`
+```{r}
+pr_out$rotation
+```
+
+
+`We can plot the first two principal components as follows:`
+
+```{r}
+biplot(pr_out, scale=0)
+```
+
+`The standard deviation of each principal component. For instance, on the ADHD data set, we can access these standard deviations as follows:`
+
+```{r}
+pr_out$sdev
+```
+
+`The variance explained by each principal component is obtained by squaring the SD:`
+
+```{r}
+pr_var=pr_out$sdev^2
+pr_var
+```
+
+`To compute the proportion of variance explained by each principal component, we simply divide the variance explained by each principal component by the total variance explained by all four principal components:`
+
+```{r}
+pve=pr_var/sum(pr_var)
+pve
+```
+
+`The cumulative sum of the pev`
+
+```{r}
+cumsum(pve)
+```
+
+`Now lets plot the Proportion of Variance Explained, and Proportion of Variance Explained.`
+
+```{r}
+plot(pve, xlab="Principal Component", ylab="Proportion of Variance Explained")
+
+plot(cumsum(pve), xlab="Principal Component", ylab=" Proportion of Variance Explained")
+```
+
+
+
+
+**4. Assume you are modeling whether a patient attempted suicide (column AX). This is a binary target variable. Please use Gradient Boosting to predict whether a patient attempts suicides. Please use whatever boosting approach you deem appropriate. But please be sure to walk us through your steps.**
+
+
+
+**5. Using the same target variable (suicide attempt), please use support vector machine to model this. You might want to consider reducing the number of variables or somehow use extracted information from the variables. This can be a really fun modeling task!**
