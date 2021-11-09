@@ -11,21 +11,239 @@ set.seed(123)
 knitr::opts_chunk$set(
   cache.extra = knitr::rand_seed, echo = TRUE, warning = FALSE, message = FALSE
   )
+
+library(tidyverse)
+library(corrplot)
+
+gh_repo <- "https://raw.githubusercontent.com/Izote/DATA622-Assignment4/main/"
+adhd <- read_csv(
+  str_c(gh_repo, "adhd_data.csv"), col_types = c("c", rep("d", 53))
+  )
 ```
 
 # Section 1
 
+> Conduct a thorough Exploratory Data Analysis (EDA) to understand the dataset.
+
+We can start our exploration of the data by first viewing summary statistics for each numeric variable with a call to the `summary` function:
+
+```{r}
+summary(adhd)
+```
+
+We'll create an `explore` function to streamline visualization of the data set, as shown below:
+
+```{r}
+adhd_cols <- str_subset(colnames(adhd), "^ADHD")
+md_cols <- str_subset(colnames(adhd), "^MD")
+
+demo_cols <- colnames(adhd)[!colnames(adhd) %in% c(adhd_cols, md_cols)]
+demo_cols <- demo_cols[!demo_cols %in% c("Initial", "Suicide")]
+
+explore <- function(columns, stat, n_cols = 4) {
+  adhd %>%
+    pivot_longer(cols = all_of(columns)) %>%
+    mutate(across("Suicide", factor)) %>%
+    ggplot(aes(x = value, color = Suicide, fill = Suicide, group = Suicide)) + 
+    geom_density(alpha = 0.3, stat = stat) +
+    facet_wrap(~ name, scales = "free", ncol = n_cols)
+}
+```
+
+There are three broad categories of variables recorded in the data - general intake data and two sets coming from an ADHD self-report and mood disorders (MD) questionnaire. We will visualize the distribution of responses within subsets in succession, starting with the non-questionnaire variables, below. Because we will want to eventually predict suicide attempts with this data, emphasis is placed on understanding the data through that lens. 
+
+```{r}
+explore(demo_cols[demo_cols != "Abuse"], stat = "count")
+```
+
+There are a few interesting takeaways from this subset of the data. There seems to be no true pattern across ages, though one might argue there are more older patients reporting no suicide attempts - which is intuitive, as younger suicidal patients would have a higher likelihood of not reaching an old age than their non-suicidal peers. 
+
+Variables measuring a history of substance use across a spectrum of abstinence to dependence show a decrease in prevalence of non-suicidal patients the further they veer towards substance dependence. Neither cocaine nor THC have as a pronounced a change in this regard as other substances. 
+
+It initially seems like psychiatric medication self-reporting might be insightful, however, 67% of patients lack a response for this variable so it is ultimately unhelpful. Sex appears to have a relationship with suicide attempts in the sample with more men than women having never attempted suicide. More women in the sample appear to have made a suicide attempt than not with the percentage being about 42% and 57% for men and women respectively. Race may be an important factor, but the data set is heavily inbalanced and representative of black (100) and white (72) patients out of the overall 175 patients.
+
+Visualizing the results from the ADHD questionnaire are difficult to summarize without the context of the question-content itself, but we can see that certain questions seemed to illicit higher responses from either group. Unlike the results from the MD assessment, there isn't as clear a throughline from question-to-question. Broadly speaking, a higher score in the assessment seems to come with higher incidences of suicide attempt.
+
+```{r}
+explore(adhd_cols, stat = "count")
+```
+
+Visualizing the responses from the MD questionnaire reveal that in most cases there is a pronounced increase in the proportion of patients having attempted suicide pending a "Yes" answer to the given question.
+
+```{r warning=FALSE}
+explore(md_cols, stat = "count")
+```
 
 # Section 2
+
+> Use a clustering method to find clusters of patients here. Whether you choose to use k-means clustering or hierarchical clustering is up to you as long as you reason through your work. You are free to be creative in terms of which variables or some combination of those you want to use. Can you come up with creative names for the profiles you found?
+
 
 
 # Section 3
 
+> Let’s explore using Principal Component Analysis on this dataset. You will note that there are different types of questions in the dataset: column: E-W: ADHD self-report; column X – AM: mood disorders questionnaire, column AN-AS: Individual Substance Misuse; etc. You could just use ONE of the sets of questionnaire, for example, you can conduct PCA on the ADHD score, or mood disorder score, etc. Please reason through your work as you decide on which sets of variables you want to use to conduct Principal Component Analysis. What did you learn from the PCA? Can you comment on which question may have a heavy bearing on the score?
+
+
+We chose to perform principal components analysis (PCA) on the ADHD data. We start by utilizing a 
+
+```{r}
+pr_out <- prcomp(adhd[5:23], scale = TRUE)
+pr_out
+```
+
+The center and scale components correspond to the means and standard deviations of the variables that were used for scaling prior to implementing PCA.
+
+```{r}
+names(pr_out)
+
+pr_out$center
+```
+
+The rotation matrix provides the principal component loadings. Each column of `pr_out$rotation` contains the corresponding principal component loading vector.
+
+```{r}
+pr_out$rotation
+```
+
+We can plot the first two principal components as follows:
+
+```{r}
+biplot(pr_out, scale = 0)
+```
+
+We can access these standard deviations as follows:
+
+```{r}
+pr_out$sdev
+```
+
+The variance explained by each principal component is obtained by squaring the standard deviation. To compute the proportion of variance explained by each principal component, we simply divide the variance explained by each principal component by the total variance explained by all four principal components. From there, we can obtain and plot the cumulative proportion of variance explained by each principal component:
+
+```{r}
+pr_var <- pr_out$sdev^2
+pve <- pr_var/sum(pr_var)
+
+cumsum(pve)
+```
+
+Now lets plot the Proportion of Variance Explained, and Proportion of Variance Explained.
+
+```{r}
+plot(pve, xlab = "Principal Component", ylab = "Proportion of Variance Explained")
+```
+
+```{r}
+plot(cumsum(pve), xlab = "Principal Component", ylab = " Proportion of Variance Explained")
+```
 
 # Section 4
 
+> Assume you are modeling whether a patient attempted suicide (column AX). This is a binary target variable. Please use Gradient Boosting to predict whether a patient attempts suicides. Please use whatever boosting approach you deem appropriate. But please be sure to walk us through your steps.
+
+
+```{r}
+adhd_mod <- adhd %>%
+  select(
+    Initial, Suicide,
+    Age, Race, Sex, Alcohol, Cocaine, `Hx of Violence`, THC, Opioids,
+    `ADHD Q1`, `ADHD Q5`, `ADHD Q12`, `ADHD Q15`,
+    `MD Q1g`, `MD Q2`, `MD Q3`
+    ) %>% 
+  drop_na()
+
+training_data <- sample_frac(adhd_mod, 0.70)
+test_data <- anti_join(adhd_mod, training_data, by = "Initial")
+```
+
+
+```{r}
+library(gbm)
+
+gbm_mod <- gbm(
+  Suicide ~ . -Initial,
+  distribution = "bernoulli",
+  data = training_data,
+  n.trees = 1000,
+  interaction.depth = 1,
+  cv.folds = 5
+)
+```
+
+```{r}
+(best_gbm <- gbm.perf(gbm_mod, method = "cv"))
+```
+
+```{r}
+gbm_train_pred <- predict(
+  gbm_mod, newdata = select(training_data, -Suicide),
+  n.trees = best_gbm,
+  type = "response"
+  )
+
+gbm_test_pred <- predict(
+  gbm_mod, newdata = select(test_data, -Suicide),
+  n.trees = best_gbm,
+  type = "response"
+  )
+
+training_data$`GBM Prediction` <- as.double(gbm_train_pred > 0.40)
+test_data$`GBM Prediction` <- as.double(gbm_test_pred > 0.40)
+
+conf_mat <- function(df, prediction_column) {
+  table("expected" = df[["Suicide"]], "predicted" = df[[prediction_column]])
+}
+
+```
+
+```{r}
+conf_mat(training_data, "GBM Prediction")
+```
+
+```{r}
+conf_mat(test_data, "GBM Prediction")
+```
 
 # Section 5
 
+> Using the same target variable (suicide attempt), please use support vector machine to model this. You might want to consider reducing the number of variables or somehow use extracted information from the variables. This can be a really fun modeling task!
 
-# Section 6
+```{r}
+library(e1071)
+```
+
+```{r}
+training_data <- mutate(training_data, across("Suicide", factor))
+test_data <- mutate(test_data, across("Suicide", factor))
+```
+
+```{r}
+svm_mod <- svm(
+  Suicide ~ Age + Race + Sex + Opioids + `Hx of Violence` + `MD Q3`,
+  data = select(training_data, -`GBM Prediction`),
+  type = "nu-classification",
+  kernel = "linear"
+)
+```
+
+
+```{r}
+svm_train_preds <- predict(svm_mod, newdata = training_data)
+svm_test_preds <- predict(
+  svm_mod, newdata = select(test_data, -`GBM Prediction`)
+  )
+
+training_data <- training_data %>%
+  mutate(`SVM Prediction` = as.double(svm_train_preds == Suicide))
+
+test_data <- test_data %>% 
+  mutate(`SVM Prediction` = as.double(svm_test_preds == Suicide))
+```
+
+```{r}
+conf_mat(training_data, "SVM Prediction")
+```
+
+```{r}
+conf_mat(test_data, "SVM Prediction")
+```

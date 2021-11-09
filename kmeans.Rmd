@@ -1,0 +1,33 @@
+---
+title: "k-Means"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Section 2
+
+> Use a clustering method to find clusters of patients here. Whether you choose to use k-means clustering or hierarchical clustering is up to you as long as you reason through your work. You are free to be creative in terms of which variables or some combination of those you want to use. Can you come up with creative names for the profiles you found?
+
+```{r}
+library(tidyverse)
+
+gh_repo <- "https://raw.githubusercontent.com/Izote/DATA622-Assignment4/main/"
+adhd <- read_csv(
+  str_c(gh_repo, "adhd_data.csv"), col_types = c("c", rep("d", 53))
+  )
+```
+
+```{r}
+adhd_kmeans <- adhd %>% 
+  select(`MD TOTAL`, `ADHD Total`, Sex, Suicide) %>% 
+  drop_na()
+
+adhd_kmeans$cluster <- kmeans(adhd_kmeans, centers = 4)$cluster
+
+adhd_kmeans %>% 
+ggplot(aes(`MD TOTAL`, `ADHD Total`, size = Suicide, shape = factor(Sex), color = factor(cluster))) +
+  geom_jitter(alpha = 0.7)
+```
