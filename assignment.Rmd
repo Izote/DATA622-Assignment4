@@ -16,9 +16,11 @@ library(tidyverse)
 library(corrplot)
 
 gh_repo <- "https://raw.githubusercontent.com/Izote/DATA622-Assignment4/main/"
+
 adhd <- read_csv(
   str_c(gh_repo, "adhd_data.csv"), col_types = c("c", rep("d", 53))
-  )
+  ) %>% 
+  mutate(Index = row_number())
 ```
 
 # Section 1
@@ -141,109 +143,155 @@ plot(cumsum(pve), xlab = "Principal Component", ylab = " Proportion of Variance 
 
 > Assume you are modeling whether a patient attempted suicide (column AX). This is a binary target variable. Please use Gradient Boosting to predict whether a patient attempts suicides. Please use whatever boosting approach you deem appropriate. But please be sure to walk us through your steps.
 
+In the following sections, we will follow conduct predictive modeling with both a Gradient Boosting based model and a support vector machine (SVM) based model to predict suicide attempts. Even though it is included in the prompt for the next section, we will do some feature engineering here so that both models can benefit from that work. There were a few observations during data exploration that informed this process, which reolved around creating a new series of binary variables valued 0-1 to either reduce the variables utilized or simplify them into a tidier format. Our logic is summarized as follows:
+
+* Despite the lack of diversity in the data set, the `Race` variable reveals a higher proportion of white participants have attempted suicide than black participants. The "Hispanic" label is also a broad heritage rather than a specific race, making it inappropriate to record here. Because there were so few participants labeled as something other than black or white, this variable is reduced to the binary variable `White`. 
+
+* Because all the substance-use variables measured the same behavior (i.e. a spectrum of non-user, user and addict) these could each be reduced to a binary representing whether the participant is simply a user of the given controlled substance. Missing values could essentially be seen as the participant being unwilling to self-report their usage - a behavior unlikely for non-users and so these could be imputed as `0`. We experimented with this as a single case-statement driven variable (i.e. a single variable for usage of any substances), but keeping each substance separate seemed to help the models better generalize.
+
+* The `Abuse` variable was converted to a tidy variable that represents whether a participant self-reported as the victim of any kind of abuse. Contrasting to the substance-abuse variables, this seemed to produce better results as a single catch-all.
+
+* The two assessments had their many variables reduced to a pair of performance scores based on the maximum possible scores eluded to in the data dictionary.
+
+In order to setup our model, the prepped data needed to be sampled. Because the number of suicidal versus non-suicidal participants was imbalanced (about 28% where `Suicide = 1`), we setup the training set to include a more deliberate sampling across both groups. This does not result in a perfect 50/50 split - that would not be an unreasonable expectation given this data set. It does, however, provide a better set of inputs than if we naively sampled the entire data set to reserve 20% of it for testing.
 
 ```{r}
-adhd_mod <- adhd %>%
+adhd2 <- adhd %>%
+  mutate(
+    White = if_else(Race == 1, 1, 0),
+    
+    Alcohol = if_else(Alcohol != 0, 1, 0),
+    THC = if_else(THC != 0, 1, 0),
+    Cocaine = if_else(Cocaine != 0, 1, 0),
+    Stimulants = if_else(Stimulants != 0, 1, 0),
+    `Sedative-hypnotics` = if_else(`Sedative-hypnotics` != 0, 1, 0),
+    Opioids = if_else(Opioids != 0, 1, 0),
+    
+    Victim = if_else(`Abuse` != 0, 1, 0),
+    
+    ADHD = `ADHD Total` / 72,
+    MD = `MD TOTAL` / 17
+  ) %>%
   select(
-    Initial, Suicide,
-    Age, Race, Sex, Alcohol, Cocaine, `Hx of Violence`, THC, Opioids,
-    `ADHD Q1`, `ADHD Q5`, `ADHD Q12`, `ADHD Q15`,
-    `MD Q1g`, `MD Q2`, `MD Q3`
-    ) %>% 
+    Index,
+    Suicide,
+    White,
+    Alcohol, THC, Cocaine, Stimulants, `Sedative-hypnotics`, Opioids,
+    Victim,
+    ADHD,
+    MD
+    ) %>%
   drop_na()
-
-training_data <- sample_frac(adhd_mod, 0.70)
-test_data <- anti_join(adhd_mod, training_data, by = "Initial")
 ```
 
+We configure the model to ignore the `Index` variable created for cross-referencing observations and choose AdaBoost as our method via the `distribution` parameter. This will provide us with as the target variable is a binary outcome. We setup 10-fold cross validation as well, and establish that we will 1,000 separate iterations. The `interaction.depth` parameter specifies the depth of the trees were generate in the process where `interaction.depth = 1` would be a stump.
 
 ```{r}
 library(gbm)
 
+set.seed(3)
+
+training <- bind_rows(
+  slice_sample(filter(adhd2, Suicide == 0), prop = .80),
+  slice_sample(filter(adhd2, Suicide == 1), prop = .80)
+  )
+testing <- anti_join(adhd2, training, by = "Index")
+
 gbm_mod <- gbm(
-  Suicide ~ . -Initial,
+  Suicide ~ . -Index,
   distribution = "bernoulli",
-  data = training_data,
+  data = training,
   n.trees = 1000,
-  interaction.depth = 1,
-  cv.folds = 5
+  interaction.depth = 3,
+  shrinkage = 0.01,
+  cv.folds = 10,
 )
 ```
 
+The `gbm` library provides a method for us to output the best performing number of trees/iterations based on our cross-validation. We store this number below with the side effect of viewing the results of the iterative process.
+
 ```{r}
-(best_gbm <- gbm.perf(gbm_mod, method = "cv"))
+best_gbm <- gbm.perf(gbm_mod)
 ```
+
+The prediction output we generate below will not arrive immediately as the output class. For that, we create a threshold and apply it to the prediction output to assign a class, much like with logistic regression via `glm`.
 
 ```{r}
 gbm_train_pred <- predict(
-  gbm_mod, newdata = select(training_data, -Suicide),
+  gbm_mod, newdata = select(training, -Suicide),
   n.trees = best_gbm,
   type = "response"
   )
 
 gbm_test_pred <- predict(
-  gbm_mod, newdata = select(test_data, -Suicide),
+  gbm_mod, newdata = select(testing, -Suicide),
   n.trees = best_gbm,
   type = "response"
   )
 
-training_data$`GBM Prediction` <- as.double(gbm_train_pred > 0.40)
-test_data$`GBM Prediction` <- as.double(gbm_test_pred > 0.40)
+threshold <- 0.40
 
+training$GBM <- as.double(gbm_train_pred > threshold)
+testing$GBM <- as.double(gbm_test_pred > threshold)
+```
+
+After defining a confusion matrix function, we can produce the results below for both the training and test data sets.
+
+```{r}
 conf_mat <- function(df, prediction_column) {
   table("expected" = df[["Suicide"]], "predicted" = df[[prediction_column]])
 }
 
+conf_mat(training, "GBM")
 ```
 
 ```{r}
-conf_mat(training_data, "GBM Prediction")
+conf_mat(testing, "GBM")
 ```
 
-```{r}
-conf_mat(test_data, "GBM Prediction")
-```
+The training and testing results are 81% and 63% accuracy respectively. While initially promising, this does not seem like a model that generalizes particularly well to new data. In the following section, however, we will the result of another type of model that will we will favor for this particular prediction task.
 
 # Section 5
 
 > Using the same target variable (suicide attempt), please use support vector machine to model this. You might want to consider reducing the number of variables or somehow use extracted information from the variables. This can be a really fun modeling task!
 
+The `e1071` library, chosen for this task for its familiarity, requires the target variable be stored as a factor in this case and so we apply that additional transformation atop our earlier data preparation.
+
+With a training data set in hand, we can pass a formula for our model to the `best.svm` method and have it fit an optimal SVM-based model given our situation. The resulting `C-classification` type and `radial` kernel are selected as a result - this accords with general results from manual experimentation we conducted outside of this report.
+
+We exclude both the `Index` and earlier `GBM` prediction variables.
+
+
 ```{r}
 library(e1071)
-```
 
-```{r}
-training_data <- mutate(training_data, across("Suicide", factor))
-test_data <- mutate(test_data, across("Suicide", factor))
-```
+training <- mutate(training, Suicide = factor(Suicide))
+testing <- mutate(testing, Suicide = factor(Suicide))
 
-```{r}
-svm_mod <- svm(
-  Suicide ~ Age + Race + Sex + Opioids + `Hx of Violence` + `MD Q3`,
-  data = select(training_data, -`GBM Prediction`),
-  type = "nu-classification",
-  kernel = "linear"
+set.seed(3)
+
+best_svm <- best.svm(
+  x = Suicide ~ . -Index -GBM,
+  data = training
 )
+
+best_svm
 ```
 
+Given the model above, we can generate some predictions using the usual `predict` method for SVM models and store that on our data sets. This allows us to easily create confusion matrices and evaluate the results.
 
-```{r}
-svm_train_preds <- predict(svm_mod, newdata = training_data)
-svm_test_preds <- predict(
-  svm_mod, newdata = select(test_data, -`GBM Prediction`)
-  )
+```{r, echo=FALSE}
+training$`SVM` <- predict(best_svm, newdata = training)
+testing$`SVM` <- predict(best_svm, newdata = testing)
 
-training_data <- training_data %>%
-  mutate(`SVM Prediction` = as.double(svm_train_preds == Suicide))
+conf_mat(training, "SVM")
 
-test_data <- test_data %>% 
-  mutate(`SVM Prediction` = as.double(svm_test_preds == Suicide))
-```
-
-```{r}
-conf_mat(training_data, "SVM Prediction")
 ```
 
 ```{r}
-conf_mat(test_data, "SVM Prediction")
+conf_mat(testing, "SVM")
 ```
+
+Based on the confusion matrices for the training and testing data respectively displayed above, we calculate about 85% and 75% accuracy respectively. This training model performs comparably as the earlier GBM, but requires significantly less computation time. 
+
+As would be anticipated, there is a drop in accuracy between training and testing data but in having experimented with other kernel options, it looks like the optimal model provided by the `best.svm` method generalizes relatively well by comparison. It does, unfortunately, seem to have a training false negative rate of about 41% and about 50% in testing. Not knowing the eventually goal/outcome for the model's usage, a model with a lower false negative rate and higher false positive rate might be preferable if one is wishing to be cautious in targeting suicidal patients for intervention/treatment.
