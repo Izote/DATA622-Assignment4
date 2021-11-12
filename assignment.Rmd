@@ -13,7 +13,6 @@ knitr::opts_chunk$set(
   )
 
 library(tidyverse)
-library(corrplot)
 
 gh_repo <- "https://raw.githubusercontent.com/Izote/DATA622-Assignment4/main/"
 
