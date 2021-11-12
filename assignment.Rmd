@@ -27,11 +27,15 @@ adhd <- read_csv(
 
 > Conduct a thorough Exploratory Data Analysis (EDA) to understand the dataset.
 
-We can start our exploration of the data by first viewing summary statistics for each numeric variable with a call to the `summary` function:
+We can began our exploration of the data by first viewing summary statistics for each numeric variable with a call to the `summary` function. Rather than reproduce the lengthy output here, the outcome was an awareness of where missing values occurred in the data. A subset of `summary` output on the data set can be seen below:
 
 ```{r}
-summary(adhd)
+summary(select(adhd, Opioids, Abuse, `Subst Dx`, `Psych meds.`))
 ```
+
+The various substance-use related variables show missing values similar to the counts we see in `Opioids`/`Abuse`, which on first glance do not seem critical but occur in such disparate observations that we can quickly reduce our overall data set from its already small original 175 observations. The original observation-count is not a huge amount to work with, so we want to be very cautious when developing our models down the road that we are choosy with when and where we drop missing values. 
+
+We also want to consider what variables we omit wholesale to avoid issues incurred from missing values. For example, `Psych meds.` is relatively useless as 67% of these values are missing. We can assume this to be a zero-value, but that's a much more risky assumption than, say, doing the same for `Opioids`.
 
 We'll create an `explore` function to streamline visualization of the data set, as shown below:
 
@@ -40,7 +44,7 @@ adhd_cols <- str_subset(colnames(adhd), "^ADHD")
 md_cols <- str_subset(colnames(adhd), "^MD")
 
 demo_cols <- colnames(adhd)[!colnames(adhd) %in% c(adhd_cols, md_cols)]
-demo_cols <- demo_cols[!demo_cols %in% c("Initial", "Suicide")]
+demo_cols <- demo_cols[!demo_cols %in% c("Index", "Initial", "Suicide")]
 
 explore <- function(columns, stat, n_cols = 4) {
   adhd %>%
@@ -52,9 +56,11 @@ explore <- function(columns, stat, n_cols = 4) {
 }
 ```
 
-There are three broad categories of variables recorded in the data - general intake data and two sets coming from an ADHD self-report and mood disorders (MD) questionnaire. We will visualize the distribution of responses within subsets in succession, starting with the non-questionnaire variables, below. Because we will want to eventually predict suicide attempts with this data, emphasis is placed on understanding the data through that lens. 
+There are three broad categories of variables recorded in the data - general intake data and two sets coming from an ADHD self-report and mood disorders (MD) questionnaire. The general intake data includes substance-usage and demographic data.
 
-```{r}
+We will visualize the distribution of responses within subsets in succession, starting with the non-questionnaire variables, below. Because we will want to eventually predict suicide attempts with this data, emphasis is placed on understanding the data through that lens. 
+
+```{r fig.align='center', fig.height=8, fig.width=10, warning=FALSE}
 explore(demo_cols[demo_cols != "Abuse"], stat = "count")
 ```
 
@@ -66,13 +72,13 @@ It initially seems like psychiatric medication self-reporting might be insightfu
 
 Visualizing the results from the ADHD questionnaire are difficult to summarize without the context of the question-content itself, but we can see that certain questions seemed to illicit higher responses from either group. Unlike the results from the MD assessment, there isn't as clear a throughline from question-to-question. Broadly speaking, a higher score in the assessment seems to come with higher incidences of suicide attempt.
 
-```{r}
+```{r fig.align='center', fig.height=8, fig.width=10, warning=FALSE}
 explore(adhd_cols, stat = "count")
 ```
 
 Visualizing the responses from the MD questionnaire reveal that in most cases there is a pronounced increase in the proportion of patients having attempted suicide pending a "Yes" answer to the given question.
 
-```{r warning=FALSE}
+```{r fig.align='center', fig.height=8, fig.width=10, warning=FALSE}
 explore(md_cols, stat = "count")
 ```
 
@@ -80,70 +86,102 @@ explore(md_cols, stat = "count")
 
 > Use a clustering method to find clusters of patients here. Whether you choose to use k-means clustering or hierarchical clustering is up to you as long as you reason through your work. You are free to be creative in terms of which variables or some combination of those you want to use. Can you come up with creative names for the profiles you found?
 
+We ran through the process of finding patient clusters below, utilizing the k-Means method. It seemed the most reasonable to try and do this based on some of demographic data that was made available in the data set. To this end, we opted to use `Age`, `Education`, `Sex` and `Suicide` - the last variable included due to the overall focus of predicting suicide attempts in this assignment. Both the `Age` and `Education` variables were centered and scaled due to the fact that while consisting of the same unit, they can vary wildly as years-in-education are inevitability eclipsed by one's ongoing lifespan. This should make clustering more effective, but the scaled variables will still be quite interpretable even if they no longer are on a year-unit.
 
+```{r}
+set.seed(3)
+
+kmeans_vars <- c(x = "Age", y = "Education", shape = "Sex", fill = "Suicide")
+k <- 5
+
+kmeans_df <- adhd %>% 
+  select(all_of(kmeans_vars)) %>% 
+  mutate(
+    x = scale(x)[ , 1],
+    y = scale(y)[ , 1],
+    across(c("shape", "fill"), factor)
+    ) %>% 
+  drop_na()
+
+kmeans_df$cluster <- factor(kmeans(kmeans_df, centers = k)$cluster)
+```
+
+Our thinking was that because we do not have any true pre-labeling or foreknowledge as to what the clusters themselves will be, these variables are the easiest to interpret as describable groups of patients. Deciding on a value for $k$ was a fairly subjective process and we iterated between values of 3 and 5, eventually settling on 5 as it felt the most easily interpreted. Visualizing the end result went hand in hand with interpretation, so these two steps were duly linked. The visualization's code is quite long, and so has been hidden from view in this report. Rather than list out the labels in text, they are included below as the color legend in the following visualization of the results.
+
+```{r fig.align='center', fig.height=8, fig.width=10, echo=FALSE}
+kmeans_df %>% 
+  mutate(
+    shape_fill = factor(
+      str_c(
+        if_else(shape == 1, "Male", "Female"), if_else(fill == 0, "Yes", "No")
+        ),
+      ordered = TRUE,
+      levels = c("MaleNo", "MaleYes", "FemaleNo", "FemaleYes")
+      ),
+    cluster = factor(cluster, ordered = TRUE, levels = seq(k))
+    ) %>% 
+  ggplot(aes(x, y, shape = shape_fill, color = cluster, size = 6)) +
+  geom_jitter(alpha = 0.65) +
+  scale_shape_manual(
+    values = c(1, 16, 2, 17),
+    labels = c(
+      "Male, Non-Suicidal", "Male, Suicidal",
+      "Female, Non-Suicidal", "Female, Suicidal"
+      )
+  ) +
+  scale_color_brewer(
+    type = "qual", palette = "Set1",
+    labels = c(
+      "Younger, less educated + evenly suicidal",
+      "Older, less educated + highly suicidal",
+      "Highly educated + highly suicidal",
+      "Older, average education + evenly suicidal",
+      "Younger, average education + evenly suicidal"
+      )
+    ) +
+  labs(
+    title = "Patient Clusters with Reference to Suicide",
+    subtitle = str_c("Given k=", k),
+    x = "Age (Centered, Scaled)",
+    y = "Years in Education (Centered, Scaled)",
+    shape = "Sex",
+    color = "Cluster"
+    ) +
+  guides(
+    size = "none"
+  )
+```
 
 # Section 3
 
 > Let’s explore using Principal Component Analysis on this dataset. You will note that there are different types of questions in the dataset: column: E-W: ADHD self-report; column X – AM: mood disorders questionnaire, column AN-AS: Individual Substance Misuse; etc. You could just use ONE of the sets of questionnaire, for example, you can conduct PCA on the ADHD score, or mood disorder score, etc. Please reason through your work as you decide on which sets of variables you want to use to conduct Principal Component Analysis. What did you learn from the PCA? Can you comment on which question may have a heavy bearing on the score?
 
-
-We chose to perform principal components analysis (PCA) on the ADHD data. We start by utilizing a 
-
-```{r}
-pr_out <- prcomp(adhd[5:23], scale = TRUE)
-pr_out
-```
-
-The center and scale components correspond to the means and standard deviations of the variables that were used for scaling prior to implementing PCA.
+We opted to utilize principal component analysis (PCA) on the ADHD questionnaire data, primarily because its constituent variables showed an interesting but difficult to characterize relationship with suicidality in patients. We select the subset of variables and conduct PCA below. The `ADHD Total` variable is removed as it is clearly dependent on all the other ADHD questionnaire variables. Because these variables all follow the exact same scoring scheme, we do not need to worry about centering/scaling for the purpose of PCA.
 
 ```{r}
-names(pr_out)
-
-pr_out$center
+adhd_pca <- adhd %>% 
+  select(starts_with("ADHD"), -`ADHD Total`) %>% 
+  prcomp()
 ```
 
-The rotation matrix provides the principal component loadings. Each column of `pr_out$rotation` contains the corresponding principal component loading vector.
+In doing so, we can review the `summary` output for the `prcomp` object below. It handily lines up each principal component (PC) and displays the standard deviation, proportion of variance and the running/cumulative proportion of the same. The initial takeaway here is that we can explain *half* of the variance using the first PC alone. If we used the first five we would have nearly 74% of the variance explained with only five variables versus the original eighteen we started with.
 
 ```{r}
-pr_out$rotation
+summary(adhd_pca)
 ```
 
-We can plot the first two principal components as follows:
+We can access a matrix of the relative impact of each input variable on the output PCs through the `rotation` attribute on the `prcomp` object. We slice this matrix below to view just the first five PCs that get us to 74% explanatory power.
 
 ```{r}
-biplot(pr_out, scale = 0)
+adhd_pca$rotation[ , 1:5]
 ```
-
-We can access these standard deviations as follows:
-
-```{r}
-pr_out$sdev
-```
-
-The variance explained by each principal component is obtained by squaring the standard deviation. To compute the proportion of variance explained by each principal component, we simply divide the variance explained by each principal component by the total variance explained by all four principal components. From there, we can obtain and plot the cumulative proportion of variance explained by each principal component:
-
-```{r}
-pr_var <- pr_out$sdev^2
-pve <- pr_var/sum(pr_var)
-
-cumsum(pve)
-```
-
-Now lets plot the Proportion of Variance Explained, and Proportion of Variance Explained.
-
-```{r}
-plot(pve, xlab = "Principal Component", ylab = "Proportion of Variance Explained")
-```
-
-```{r}
-plot(cumsum(pve), xlab = "Principal Component", ylab = " Proportion of Variance Explained")
-```
+The first PC shows that each question essentially holds the same degree of impact in its composition and that initial 50% of explanatory ability. Going down the line, however, we start to see that certain questions shift in their overall impact as we bridge the gap between 50% and 74%. For example, compared to the other questions, Q1 and Q2 show a consistent degree of impact across our first five PCs and the same could be said to a lesser extent for Q5. This guides us in thinking that these three questions are particularly strong in their overall impact on a patient's score.
 
 # Section 4
 
 > Assume you are modeling whether a patient attempted suicide (column AX). This is a binary target variable. Please use Gradient Boosting to predict whether a patient attempts suicides. Please use whatever boosting approach you deem appropriate. But please be sure to walk us through your steps.
 
-In the following sections, we will follow conduct predictive modeling with both a Gradient Boosting based model and a support vector machine (SVM) based model to predict suicide attempts. Even though it is included in the prompt for the next section, we will do some feature engineering here so that both models can benefit from that work. There were a few observations during data exploration that informed this process, which reolved around creating a new series of binary variables valued 0-1 to either reduce the variables utilized or simplify them into a tidier format. Our logic is summarized as follows:
+In the following sections, we will follow conduct predictive modeling with both a gradient boosting based model (GBM) and a support vector machine based model (SVM) to predict suicide attempts. Even though it is included in the prompt for the next section, we will do some feature engineering here so that both models can benefit from that work. There were a few observations during data exploration that informed this process, which revolved around creating a new series of binary variables valued 0-1 to either reduce the variables utilized or simplify them into a tidier format. Our logic is summarized as follows:
 
 * Despite the lack of diversity in the data set, the `Race` variable reveals a higher proportion of white participants have attempted suicide than black participants. The "Hispanic" label is also a broad heritage rather than a specific race, making it inappropriate to record here. Because there were so few participants labeled as something other than black or white, this variable is reduced to the binary variable `White`. 
 
@@ -249,7 +287,7 @@ conf_mat(training, "GBM")
 conf_mat(testing, "GBM")
 ```
 
-The training and testing results are 81% and 63% accuracy respectively. While initially promising, this does not seem like a model that generalizes particularly well to new data. In the following section, however, we will the result of another type of model that will we will favor for this particular prediction task.
+The training and testing results are 81% and 63% accuracy respectively. While initially promising, this does not seem like a model that generalizes particularly well to new data. Further, this particular model also has a tendency to predict false negatives in its misclassifications. In the following section, however, we will the result of another type of model that will we will favor for this particular prediction task.
 
 # Section 5
 
@@ -260,7 +298,6 @@ The `e1071` library, chosen for this task for its familiarity, requires the targ
 With a training data set in hand, we can pass a formula for our model to the `best.svm` method and have it fit an optimal SVM-based model given our situation. The resulting `C-classification` type and `radial` kernel are selected as a result - this accords with general results from manual experimentation we conducted outside of this report.
 
 We exclude both the `Index` and earlier `GBM` prediction variables.
-
 
 ```{r}
 library(e1071)
@@ -292,6 +329,8 @@ conf_mat(training, "SVM")
 conf_mat(testing, "SVM")
 ```
 
-Based on the confusion matrices for the training and testing data respectively displayed above, we calculate about 85% and 75% accuracy respectively. This training model performs comparably as the earlier GBM, but requires significantly less computation time. 
+Based on the confusion matrices for the training and testing data respectively displayed above, we calculate about 85% and 75% accuracy respectively. This model performs comparably as the earlier GBM on training data, but requires significantly less computation time. It also seems to do a better job generalizing to new data as there is a far less stark drop in accuracy when utilizing the testing data.
 
-As would be anticipated, there is a drop in accuracy between training and testing data but in having experimented with other kernel options, it looks like the optimal model provided by the `best.svm` method generalizes relatively well by comparison. It does, unfortunately, seem to have a training false negative rate of about 41% and about 50% in testing. Not knowing the eventually goal/outcome for the model's usage, a model with a lower false negative rate and higher false positive rate might be preferable if one is wishing to be cautious in targeting suicidal patients for intervention/treatment.
+As would be anticipated, there is a drop in accuracy between training and testing data but in having experimented with other kernel options, it looks like the optimal model provided by the `best.svm` method generalizes relatively well by comparison. 
+
+It does, unfortunately, seem to have a training false negative rate of about 41% in training and about 50% in testing. Not knowing the eventually goal/outcome for the model's usage, a model with a lower false negative rate and higher false positive rate might be preferable if one is wishing to be cautious in targeting suicidal patients for intervention/treatment.
