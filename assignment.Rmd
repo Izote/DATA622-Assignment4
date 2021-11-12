@@ -2,7 +2,9 @@
 title: 'DATA 622: Homework #4'
 author: "Karim Hammoud and Michael Munguia"
 date: "11/12/2021"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -221,7 +223,7 @@ adhd2 <- adhd %>%
   drop_na()
 ```
 
-We configure the model to ignore the `Index` variable created for cross-referencing observations and choose AdaBoost as our method via the `distribution` parameter. This will provide us with as the target variable is a binary outcome. We setup 10-fold cross validation as well, and establish that we will 1,000 separate iterations. The `interaction.depth` parameter specifies the depth of the trees were generate in the process where `interaction.depth = 1` would be a stump.
+We configure the model to ignore the `Index` variable created for cross-referencing observations and choose Bernoulli as our method via the `distribution` parameter given the target variables 0/1 outcome. This will provide us with as the target variable is a binary outcome. We setup 10-fold cross validation as well, and establish that we will 1,000 separate iterations. The `interaction.depth` parameter specifies the depth of the trees were generate in the process where `interaction.depth = 1` would be a stump.
 
 ```{r}
 library(gbm)

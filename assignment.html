@@ -328,7 +328,7 @@ kmeans_df$cluster &lt;- factor(kmeans(kmeans_df, centers = k)$cluster)</code></p
     MD
     ) %&gt;%
   drop_na()</code></pre>
-<p>We configure the model to ignore the <code>Index</code> variable created for cross-referencing observations and choose AdaBoost as our method via the <code>distribution</code> parameter. This will provide us with as the target variable is a binary outcome. We setup 10-fold cross validation as well, and establish that we will 1,000 separate iterations. The <code>interaction.depth</code> parameter specifies the depth of the trees were generate in the process where <code>interaction.depth = 1</code> would be a stump.</p>
+<p>We configure the model to ignore the <code>Index</code> variable created for cross-referencing observations and choose Bernoulli as our method via the <code>distribution</code> parameter given the target variables 0/1 outcome. This will provide us with as the target variable is a binary outcome. We setup 10-fold cross validation as well, and establish that we will 1,000 separate iterations. The <code>interaction.depth</code> parameter specifies the depth of the trees were generate in the process where <code>interaction.depth = 1</code> would be a stump.</p>
 <pre class="r"><code>library(gbm)
 
 set.seed(3)
